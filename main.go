@@ -63,18 +63,18 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	EchoHeader(0, "", w)
+	EchoHeader(0, nil, w)
 	actn := req.PostFormValue("actn")
 	if actn == "C" {
 		EchoConnInfo(addr, db, w)
 		return
 	}
 
-	querys := getQuerys(req)
 	if actn == "Q" {
 		var errno uint16
 		var errmsg string
 
+		querys := getQuerys(req)
 		for i, q := range querys {
 			if q == "" {
 				continue
@@ -101,13 +101,13 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 
 			EchoResultSetHeader(errno, affectedrows, insertid, numfields, numrows, w)
 			if errno > 0 {
-				w.Write([]byte(GetBlock(string(errmsg))))
+				w.Write(GetBlock(errmsg))
 			} else {
 				if numfields > 0 {
 					EchoFieldsHeader(res.Fields(), numfields, w)
 					EchoData(rows, w)
 				} else {
-					w.Write([]byte(GetBlock("")))
+					w.Write(GetBlock(""))
 				}
 			}
 			if i < len(querys) - 1 {
@@ -145,50 +145,51 @@ func getQuerys(req *http.Request) []string {
 	return querys
 }
 
-func EchoHeader(errno uint16, msg string, w http.ResponseWriter) {
-	str := GetLongBinary(1111)
-	str += GetShortBinary(201)
-	str += GetLongBinary(int(errno))
-	str += GetDummy(6)
-	w.Write([]byte(str))
+func EchoHeader(errno uint16, msg []byte, w http.ResponseWriter) {
+	w.Write(GetLongBinary(1111))
+	w.Write(GetShortBinary(201))
+	w.Write(GetLongBinary(int(errno)))
+	w.Write(GetDummy(6))
 
-	if msg != "" {
-		w.Write([]byte(msg))
+	if msg != nil {
+		w.Write(msg)
 	}
 }
 
-func GetLongBinary(num int) string {
+func GetLongBinary(num int) []byte {
 	buf := new(bytes.Buffer)
 	byteOrder := binary.BigEndian
 	binary.Write(buf, byteOrder, uint32(num))
-	return buf.String()
+	return buf.Bytes()
 }
 
-func GetShortBinary(num int) string {
+func GetShortBinary(num int) []byte {
 	buf := new(bytes.Buffer)
 	byteOrder := binary.BigEndian
 	binary.Write(buf, byteOrder, uint16(num))
-	return buf.String()
+	return buf.Bytes()
 }
 
-func GetDummy(count int) string {
+func GetDummy(count int) []byte {
 	var b []byte
 	for i := 0; i < count; i ++ {
 		b = append(b, 0)
 	}
-	return string(b)
+	return b
 }
 
-func GetBlock(val string) string {
+func GetBlock(val string) []byte {
 	buf := new(bytes.Buffer)
 	l := len(val)
 	if l < 254 {
 		binary.Write(buf, binary.BigEndian, uint8(l))
 		buf.WriteString(val)
-		return buf.String()
 	} else {
-		return "\xFE" + GetLongBinary(l) + val
+		buf.Write([]byte("\xFE"))
+		buf.Write(GetLongBinary(l))
+		buf.WriteString(val)
 	}
+	return buf.Bytes()
 }
 
 func EchoConnInfo(addr string, db mysql.Conn, w http.ResponseWriter) {
@@ -212,46 +213,41 @@ func EchoConnInfo(addr string, db mysql.Conn, w http.ResponseWriter) {
 		}
 	}
 
-	str := GetBlock(addr + " via TCP/IP")
-	str += GetBlock(strconv.Itoa(proto))
-	str += GetBlock(serverVer)
-	w.Write([]byte(str))
+	w.Write(GetBlock(addr + " via TCP/IP"))
+	w.Write(GetBlock(strconv.Itoa(proto)))
+	w.Write(GetBlock(serverVer))
 }
 
 func EchoResultSetHeader(errno uint16, affectrows int, insertid int, numfields int, numrows int, w http.ResponseWriter) {
-	str := GetLongBinary(int(errno))
-	str += GetLongBinary(affectrows)
-	str += GetLongBinary(insertid)
-	str += GetLongBinary(numfields)
-	str += GetLongBinary(numrows)
-	str += GetDummy(12)
-
-	w.Write([]byte(str))
+	w.Write(GetLongBinary(int(errno)))
+	w.Write(GetLongBinary(affectrows))
+	w.Write(GetLongBinary(insertid))
+	w.Write(GetLongBinary(numfields))
+	w.Write(GetLongBinary(numrows))
+	w.Write(GetDummy(12))
 }
 
 func EchoFieldsHeader(fields []*mysql.Field, numfields int, w http.ResponseWriter) {
-	var str string
 	for i := 0; i < numfields; i++ {
-		str += GetBlock(fields[i].Name)
-		str += GetBlock(fields[i].Table)
-		str += GetLongBinary(int(fields[i].Type))
-		str += GetLongBinary(int(fields[i].Flags))
-		str += GetLongBinary(int(fields[i].DispLen))
+		w.Write(GetBlock(fields[i].Name))
+		w.Write(GetBlock(fields[i].Table))
+		w.Write(GetLongBinary(int(fields[i].Type)))
+		w.Write(GetLongBinary(int(fields[i].Flags)))
+		w.Write(GetLongBinary(int(fields[i].DispLen)))
 	}
-	w.Write([]byte(str))
 }
 
 func EchoData(rows []mysql.Row, w http.ResponseWriter) {
 	for _, row := range rows {
-		var str string
+		buf := new(bytes.Buffer)
 		for _, col := range row {
 			if col == nil {
-				str += "\xFF"
+				buf.Write([]byte("\xFF"))
 			} else {
-				str += GetBlock(string(col.([]byte)))
+				buf.Write(GetBlock(string(col.([]byte))))
 			}
 		}
-		w.Write([]byte(str))
+		w.Write(buf.Bytes())
 	}
 }
 
