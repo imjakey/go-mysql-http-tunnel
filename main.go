@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -11,17 +12,31 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 )
 
-func checkError(err error) (uint16, []byte) {
-	var errno uint16 = 0
-	var errmsg []byte
+const (
+	AUTH_ERRNO = 1045
+	AUTH_ERRMSG = "authentication error"
+)
+
+func checkError(err error) (uint16, string) {
+	if err == nil {
+		return 0, ""
+	}
+	var errno uint16
+	var errmsg string
 	if e, ok := err.(*mysql.Error); ok {
 		if e.Code > 0 {
 			errno = e.Code
-			errmsg = e.Msg
+			errmsg = string(e.Msg)
 		}
 	}
+
+	if err.Error() == AUTH_ERRMSG {
+		return AUTH_ERRNO, AUTH_ERRMSG
+	}
+
 	return errno, errmsg
 }
 
@@ -33,10 +48,9 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	addr := req.PostFormValue("host") + ":" + req.PostFormValue("port")
 	db := mysql.New("tcp", "", addr, user, pass)
 	err := db.Connect()
-
+	defer db.Close()
 	if errno, errmsg := checkError(err); errno > 0 {
-		EchoHeader(errno, w)
-		w.Write(errmsg)
+		EchoHeader(errno, GetBlock(errmsg), w)
 		return
 	}
 
@@ -44,36 +58,26 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if dbname != "" {
 		err = db.Use(dbname)
 		if errno, errmsg := checkError(err); errno > 0 {
-			EchoHeader(errno, w)
-			w.Write(errmsg)
+			EchoHeader(errno, GetBlock(errmsg), w)
 			return
 		}
 	}
 
-	EchoHeader(0, w)
+	EchoHeader(0, "", w)
 	actn := req.PostFormValue("actn")
 	if actn == "C" {
 		EchoConnInfo(addr, db, w)
 		return
 	}
 
-	var querys []string
-	for key, values := range req.PostForm {
-		if key != "q[]" {
-			continue
-		}
-		for _, q := range values {
-			querys = append(querys, q)
-		}
-	}
-
+	querys := getQuerys(req)
 	if actn == "Q" {
 		var errno uint16
-		var errmsg []byte
+		var errmsg string
 
 		for i, q := range querys {
 			if q == "" {
-				return
+				continue
 			}
 
 			affectedrows := 0
@@ -115,12 +119,42 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func EchoHeader(errno uint16, w http.ResponseWriter) {
+func getQuerys(req *http.Request) []string {
+	var querys []string
+	for key, values := range req.PostForm {
+		if key != "q[]" {
+			continue
+		}
+		for _, q := range values {
+			if enc := req.PostFormValue("encodeBase64"); enc == "1" {
+				c := 4 - (len(q) % 4)
+				if  c > 0 && c < 4 {
+					q += strings.Repeat("=", c)
+				}
+
+				data, err := base64.StdEncoding.DecodeString(q)
+				if err != nil {
+					//fmt.Println(err, q)
+					continue
+				}
+				q = string(data)
+			}
+			querys = append(querys, q)
+		}
+	}
+	return querys
+}
+
+func EchoHeader(errno uint16, msg string, w http.ResponseWriter) {
 	str := GetLongBinary(1111)
 	str += GetShortBinary(201)
 	str += GetLongBinary(int(errno))
 	str += GetDummy(6)
 	w.Write([]byte(str))
+
+	if msg != "" {
+		w.Write([]byte(msg))
+	}
 }
 
 func GetLongBinary(num int) string {
