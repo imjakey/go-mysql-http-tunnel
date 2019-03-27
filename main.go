@@ -274,5 +274,9 @@ func main() {
 		handleHTTP(w, r)
 	}))
 
-	http.ListenAndServe(":" + portStr, mux)
+	err := http.ListenAndServe(":" + portStr, mux)
+	if err != nil {
+		fmt.Println("Please check error :")
+		fmt.Println(err.Error())
+	}
 }
