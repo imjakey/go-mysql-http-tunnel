@@ -5,12 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"flag"
-	"fmt"
+	"github.com/sevlyar/go-daemon"
 	"github.com/ziutek/mymysql/mysql"
 	_ "github.com/ziutek/mymysql/thrsafe"
+	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -251,32 +251,40 @@ func EchoData(rows []mysql.Row, w http.ResponseWriter) {
 	}
 }
 
-var port = flag.Int("p", 8080, "set app port with -p=xxx or -p xxx.")
-var godaemon = flag.Bool("d", false, "run app as a daemon with -d=true or -d true.")
-func init() {
+func main() {
+	cntxt := &daemon.Context{
+		PidFileName: "pid",
+		PidFilePerm: 0644,
+		//LogFileName: "go-mysql-tunnel.log",
+		//LogFilePerm: 0640,
+		WorkDir:     "./",
+		Umask:       027,
+		Args:        os.Args,
+	}
+
+	d, err := cntxt.Reborn()
+	if err != nil {
+		log.Fatal("Unable to run: ", err)
+	}
+	if d != nil {
+		return
+	}
+	defer cntxt.Release()
+
+	log.Println("go-mysql-tunnel daemon started")
+
+	var port = flag.Int("p", 8080, "set app port with -p=xxx or -p xxx.")
 	if !flag.Parsed() {
 		flag.Parse()
 	}
-
-	if *godaemon {
-		cmd := exec.Command(os.Args[0], flag.Args()[1:]...)
-		cmd.Start()
-		fmt.Printf("%s [PID] %d running...\n", os.Args[0], cmd.Process.Pid)
-		*godaemon = false
-		os.Exit(0)
-	}
-}
-
-func main() {
 	portStr := strconv.Itoa(*port)
 	mux := http.NewServeMux()
-	mux.Handle("/tunnel", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleHTTP(w, r)
 	}))
 
-	err := http.ListenAndServe(":" + portStr, mux)
+	err = http.ListenAndServe(":" + portStr, mux)
 	if err != nil {
-		fmt.Println("Please check error :")
-		fmt.Println(err.Error())
+		log.Println(err.Error())
 	}
 }
