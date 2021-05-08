@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	AUTH_ERRNO = 1045
+	AUTH_ERRNO  = 1045
 	AUTH_ERRMSG = "authentication error"
 )
 
@@ -110,7 +110,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 					w.Write(GetBlock(""))
 				}
 			}
-			if i < len(querys) - 1 {
+			if i < len(querys)-1 {
 				w.Write([]byte("\x01"))
 			} else {
 				w.Write([]byte("\x00"))
@@ -128,7 +128,7 @@ func getQuerys(req *http.Request) []string {
 		for _, q := range values {
 			if enc := req.PostFormValue("encodeBase64"); enc == "1" {
 				c := 4 - (len(q) % 4)
-				if  c > 0 && c < 4 {
+				if c > 0 && c < 4 {
 					q += strings.Repeat("=", c)
 				}
 
@@ -172,7 +172,7 @@ func GetShortBinary(num int) []byte {
 
 func GetDummy(count int) []byte {
 	var b []byte
-	for i := 0; i < count; i ++ {
+	for i := 0; i < count; i++ {
 		b = append(b, 0)
 	}
 	return b
@@ -257,14 +257,14 @@ func main() {
 		PidFilePerm: 0644,
 		//LogFileName: "go-mysql-tunnel.log",
 		//LogFilePerm: 0640,
-		WorkDir:     "./",
-		Umask:       027,
-		Args:        os.Args,
+		WorkDir: "./",
+		Umask:   027,
+		Args:    os.Args,
 	}
 
 	d, err := cntxt.Reborn()
 	if err != nil {
-		log.Fatal("Unable to run: ", err)
+		log.Fatal("Unable to run: ", err.Error())
 	}
 	if d != nil {
 		return
@@ -283,7 +283,7 @@ func main() {
 		handleHTTP(w, r)
 	}))
 
-	err = http.ListenAndServe(":" + portStr, mux)
+	err = http.ListenAndServe(":"+portStr, mux)
 	if err != nil {
 		log.Println(err.Error())
 	}
